@@ -1,0 +1,483 @@
+import os
+import threading
+import time
+from typing import Dict
+import telebot
+from telebot.types import (
+    Message,
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    WebAppInfo
+)
+
+
+class KIPOBot:
+    """
+    Telegram-бот для учебного учреждения КИПО с запланированными постами и Mini App интеграцией.
+    """
+
+    def __init__(self, token: str):
+        self.bot = telebot.TeleBot(token)
+        self.user_messages: Dict[int, Dict[str, int]] = {}
+        self.user_states: Dict[int, Dict[str, str]] = {}
+        self._setup_handlers()
+        self._start_scheduled_posts()
+
+    def _setup_handlers(self) -> None:
+        """Регистрация обработчиков команд и callback-запросов."""
+        self.bot.message_handler(commands=['start'])(self._send_welcome)
+        self.bot.callback_query_handler(func=lambda call: True)(self._handle_callback_query)
+
+    def _handle_callback_query(self, call: CallbackQuery) -> None:
+        """Обработчик callback-запросов."""
+        chat_id = call.message.chat.id
+        data = call.data
+
+        if data == 'learn_more':
+            self._show_more_info(call)
+        elif data == 'convert_coins':
+            self._show_convert_coins(chat_id)
+        elif data == 'connect_wallet':
+            self._show_connect_wallet(chat_id)
+        elif data == 'wallet_problems':
+            self._show_wallet_problems(chat_id)
+        elif data == 'problems':
+            self._show_problems(chat_id)
+        elif data == 'back':
+            self._go_back(chat_id)
+        elif data == 'back_wallet':
+            self._go_back_to_wallet(chat_id)
+        elif data == 'start_test':
+            self._start_test(call)
+
+    def _start_test(self, call: CallbackQuery) -> None:
+        """Обработчик начала теста."""
+        chat_id = call.message.chat.id
+        text = "Тест начался! Ответьте на несколько вопросов."
+
+        try:
+            self.bot.answer_callback_query(call.id, text="Тест начинается...")
+            sent_msg = self.bot.send_message(chat_id, text)
+            self._save_message(chat_id, "test", sent_msg.message_id)
+        except Exception as e:
+            print(f"Ошибка при запуске теста: {e}")
+
+    def _start_scheduled_posts(self) -> None:
+        """Запуск отложенных постов в отдельных потоках."""
+        threading.Thread(target=self._schedule_post1, daemon=True).start()
+        threading.Thread(target=self._schedule_post2, daemon=True).start()
+        threading.Thread(target=self._schedule_post3, daemon=True).start()
+
+    def _schedule_post1(self) -> None:
+        """Первый отложенный пост через 1 минуту."""
+        time.sleep(60)
+        for chat_id in list(self.user_messages.keys()):
+            text = """
+            Ты мечтаешь о знаниях, которые изменят твою жизнь?
+
+Хочешь учиться в месте, где каждый день — это шаг к успеху и новым возможностям? Наше учебное заведение — это не просто школа или университет, это сообщество единомышленников, где твои таланты раскрываются, а мечты становятся реальностью 🏆
+
+В нашем видео ты увидишь, как живёт наше _учебное заведение_, познакомишься с преподавателями, которые вдохновляют, и студентами, которые уже сегодня строят своё успешное завтра. Узнаешь о современных технологиях, уникальных программах и атмосфере, где учёба — _это увлекательное путешествие._
+
+Не упусти шанс заглянуть за кулисы и почувствовать дух нашего учебного заведения! Нажми на видео и начни своё приключение *прямо сейчас!*
+    """
+            keyboard = InlineKeyboardMarkup()
+            keyboard.add(InlineKeyboardButton("Смотреть видео", url="https://rutube.ru/video/5e7bfa3bbf7bdca8d76fcb1aeab39610/"))
+
+            self._replace_message(
+                chat_id=chat_id,
+                new_text=text,
+                new_photo=os.path.join('image', 'KIPOhh.jpg'),
+                keyboard=keyboard,
+                tag="post1"
+            )
+
+    def _schedule_post2(self) -> None:
+        """Второй отложенный пост через 2 минуты."""
+        time.sleep(120)
+        for chat_id in list(self.user_messages.keys()):
+            text = """
+*Какая профессия тебе больше всего подходит* 👨‍🎓
+
+Пройди мини тест и узнай какая профессия больше всего тебе подходит в нашем учебном заведении
+            """
+            keyboard = InlineKeyboardMarkup()
+            keyboard.add(InlineKeyboardButton("Пройти тест", callback_data='start_test'))
+
+            self._replace_message(
+                chat_id=chat_id,
+                new_text=text,
+                new_photo=os.path.join('image', 'KIPOPROF.jpg'),
+                keyboard=keyboard,
+                tag="post2"
+            )
+
+
+    def _schedule_post3(self) -> None:
+        """Третий отложенный пост через 3 минуты."""
+        time.sleep(180)
+        for chat_id in list(self.user_messages.keys()):
+            text = "*Узнайте как получить налоговый вычет по расходам на обучение*📃"
+            keyboard = InlineKeyboardMarkup()
+            keyboard.add(InlineKeyboardButton("Подробнее", url="https://www.nalog.gov.ru/rn77/taxation/taxes/ndfl/nalog_vichet/soc_nv/soc_nv_ob/?ysclid=m9vr99vkec676799796"))
+
+            self._replace_message(
+                chat_id=chat_id,
+                new_text=text,
+                new_photo=os.path.join('image', 'KIPOHALOG.jpg'),
+                keyboard=keyboard,
+                tag="post3"
+            )
+
+    def _replace_message(self, chat_id: int, new_text: str, new_photo: str,
+                         keyboard: InlineKeyboardMarkup, tag: str) -> None:
+        """Заменяет предыдущее сообщение новым."""
+        try:
+            # Удаляем предыдущее сообщение если есть
+            if tag in self.user_messages.get(chat_id, {}):
+                try:
+                    self.bot.delete_message(chat_id, self.user_messages[chat_id][tag])
+                except Exception as e:
+                    print(f"Не удалось удалить сообщение: {e}")
+
+            # Отправляем новое сообщение
+            sent_msg = self.bot.send_photo(
+                chat_id=chat_id,
+                photo=open(new_photo, 'rb'),
+                caption=new_text,
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+            self._save_message(chat_id, tag, sent_msg.message_id)
+
+        except Exception as e:
+            print(f"Ошибка при замене сообщения: {e}")
+
+    def _send_welcome(self, message: Message) -> None:
+        """Приветственное сообщение с кнопками."""
+        welcome_text = """
+*Добро Пожаловать в Бота от Лучшего Учебного Учреждения КИПО 🔥*
+
+Зарабатывайте виртуальные монеты для получения скидки при поступлении в наше учебное заведение.
+        """
+
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton(
+                "ОТКРЫТЬ ПРИЛОЖЕНИЕ",
+                web_app=WebAppInfo(url="https://sergei-dott.github.io/KIPOclicke/")
+            ),
+            InlineKeyboardButton("Узнать"
+                                 " больше", callback_data='learn_more')
+        )
+
+        try:
+            sent_msg = self.bot.send_photo(
+                chat_id=message.chat.id,
+                photo=open(os.path.join('image', 'KIPOGRA.jpg'), 'rb'),
+                caption=welcome_text,
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+            self._save_message(message.chat.id, "welcome", sent_msg.message_id)
+            self._save_state(message.chat.id, "last_post", "welcome")
+        except Exception as e:
+            print(f"Ошибка при отправке welcome сообщения: {e}")
+
+    def _show_more_info(self, call: CallbackQuery) -> None:
+        """Информация о системе монет."""
+        chat_id = call.message.chat.id
+        info_text = """
+В этом боте вы сможете зарабатывать монеты для получения скидки при поступление в наше учебное заведение.
+
+*Как это работает ?*
+
+Ваша задача это как можно больше набрать монет в нашем Web приложении, чем больше монет тем выше скидка на обучение.
+*Максимальное скидка на обучение составляет 15%*.
+
+Примерное количество монет на балансе в Web приложении для получение 15% должно составлять 
+~ *500 000 монет* и больше.
+
+Но так же можно  получить более меньшею скидку на обучение набрав при этом 
+~ *100 000 монет* и больше, что в итоге вы можете получить скидку в размере 10%
+
+Если вы набрали меньше чем 
+*100 000, но больше чем 50 000 монет*, то вы можете получить 5% скидку на обучение. В ином случае если ваш баланс составляет *50 000 монет - 30 000 монет*, то размер вашей скидки составит 3%
+В другом случае если баланс составляет менее *30 000 монет*, то баллы будут не начислены 😔
+        """
+
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton("Конвертация монет", callback_data='convert_coins'),
+            InlineKeyboardButton("Подключить крипто"
+                                 " кошелек", callback_data='connect_wallet')
+        )
+
+        try:
+            sent_msg = self.bot.send_photo(
+                chat_id=chat_id,
+                photo=open(os.path.join('image', 'KIPOCKIDDD.jpg'), 'rb'),
+                caption=info_text,
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+            self._save_message(chat_id, "info", sent_msg.message_id)
+            self._save_state(chat_id, "last_post", "info")
+        except Exception as e:
+            print(f"Ошибка при отправке информации: {e}")
+
+    def _show_convert_coins(self, chat_id: int) -> None:
+        """Пост о конвертации монет."""
+        text = """
+*Как конвертировать монеты в процент по скидке ?*
+
+Для этого вам нужно набрать приемлемое количество баллов для конвертации. Бот будет работать _в течение месяца_ после начало объявления о старте, после истечения срока увеличить количество монет _будет невозможно_. 
+Далее в течение недели после окончания игры, на ваш крипто кошелёк будет начислено N количество криптовалюты *KIPO*, это сумма и будет являться вашей скидкой на обучение.
+Чтобы подтвердить начисленные вам монеты *KIPO*, во время начала подачи документов в наше учебное заведение, вы будете должны показать приемной комиссии сумму ваших набранных монет в самом крипто кошелке.
+ Если вы прошли все этапы успешно, то мы вас поздравляем, вы вычли N % от суммы 😀
+        """
+
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton("Возникли проблемы", callback_data='problems'),
+            InlineKeyboardButton("Вернуться назад", callback_data='back')
+        )
+
+        try:
+            sent_msg = self.bot.send_photo(
+                chat_id=chat_id,
+                photo=open(os.path.join('image', 'KIPOCKID.jpg'), 'rb'),
+                caption=text,
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+            self._save_message(chat_id, "convert", sent_msg.message_id)
+            self._save_state(chat_id, "last_post", "convert")
+        except Exception as e:
+            print(f"Ошибка при отправке конвертации: {e}")
+
+    def _show_connect_wallet(self, chat_id: int) -> None:
+        """Пост о подключении кошелька."""
+        text = """
+*Как подключить крипто кошелёк к нашему приложению ?*
+
+1. Скачиваем на устройство крипто кошелёк _MetaMask_.
+
+2. Проходим регистрацию и создаем новый кошелек. *Примечании*: Обязательно сохраните свою Seed - фразу, которая будет состоять из 12 слово, никому не сообщайте и не говорите вашу секретную фразу. Если секретная фраза будет утеряна то ваши средства будут списаны, будьте внимательны.
+
+3. После регистрации создаем новый кошелек.
+
+4. Следующим шагом будет копирования своего общего адреса кошелька. _Скопировать_ адрес своего кошелек вы сможете верхней части приложения.
+
+5. После того как вы скопировали общей адрес своего кошелка, заходите в наше приложение, нажимаете вкладку под названием _"кошелек"_, вставляете скопированный адрес кошелка в текстовое поле, после чего сохраняете.
+
+Если сделали все правильно, то  *мы вас поздравляем* вы  успешно подключили свой кошелек к нашему приложению, что вскоре вы сможете получить _свое вознаграждение_ 😀
+        """
+
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton("Скачать MetaMask", url="https://metamask.io/download.html"),
+            InlineKeyboardButton("Пошаговое "
+                                 "видео", url="https://rutube.ru/shorts/44930c106504842c9e0cc6ad03858df2?r=wd")
+        )
+        keyboard.row(
+            InlineKeyboardButton("Возникли проблемы", callback_data='wallet_problems'),
+            InlineKeyboardButton(" Вернуться"
+                                 " назад", callback_data='back')
+        )
+
+        try:
+            sent_msg = self.bot.send_photo(
+                chat_id=chat_id,
+                photo=open(os.path.join('image', 'KIPOKOSH.jpg'), 'rb'),
+                caption=text,
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+            self._save_message(chat_id, "wallet", sent_msg.message_id)
+            self._save_state(chat_id, "last_post", "wallet")
+        except Exception as e:
+            print(f"Ошибка при отправке информации о кошельке: {e}")
+
+    def _show_wallet_problems(self, chat_id: int) -> None:
+        """Пост о проблемах с кошельком."""
+        text = """Появилась проблема с подключением или созданием кошелька то напишите нам на нашу электронную почту: KIPO@clicker.gmail.com
+Обратная связь поступит в течение 1 дня.
+        """
+
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("Вернуться назад", callback_data='back_wallet'))
+
+        try:
+            sent_msg = self.bot.send_photo(
+                chat_id=chat_id,
+                photo=open(os.path.join('image', 'OPERATOR.jpg'), 'rb'),
+                caption=text,
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+            self._save_message(chat_id, "wallet_problems", sent_msg.message_id)
+            self._save_state(chat_id, "last_post", "wallet_problems")
+        except Exception as e:
+            print(f"Ошибка при отправке проблем с кошельком: {e}")
+
+    def _show_problems(self, chat_id: int) -> None:
+        """Пост о проблемах."""
+        text = """
+        Появилась проблема с подключением или созданием кошелька то напишите нам на нашу электронную почту: KIPO@clicker.gmail.com
+ Обратная связь поступит в течение 1 дня.
+        """
+
+        keyboard = InlineKeyboardMarkup()
+        keyboard.add(InlineKeyboardButton("Вернуться назад", callback_data='back'))
+
+        try:
+            sent_msg = self.bot.send_photo(
+                chat_id=chat_id,
+                photo=open(os.path.join('image', 'OPERATOR.jpg'), 'rb'),
+                caption=text,
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+            self._save_message(chat_id, "problems", sent_msg.message_id)
+            self._save_state(chat_id, "last_post", "problems")
+        except Exception as e:
+            print(f"Ошибка при отправке проблем: {e}")
+
+    def _go_back(self, chat_id: int) -> None:
+        """Возврат к предыдущему посту."""
+        last_post = self.user_states.get(chat_id, {}).get("last_post", "welcome")
+
+        current_post = None
+        target_post = "welcome"
+
+        if last_post == "convert":
+            current_post = "convert"
+            target_post = "info"
+        elif last_post == "problems":
+            current_post = "problems"
+            target_post = "convert"
+        elif last_post == "wallet":
+            current_post = "wallet"
+            target_post = "info"
+        elif last_post == "info":
+            current_post = "info"
+            target_post = "welcome"
+        elif last_post == "wallet_problems":
+            current_post = "wallet_problems"
+            target_post = "wallet"
+
+        if current_post and current_post in self.user_messages.get(chat_id, {}):
+            try:
+                self.bot.delete_message(chat_id, self.user_messages[chat_id][current_post])
+            except Exception as e:
+                print(f"Не удалось удалить сообщение: {e}")
+
+        if target_post == "info":
+            self._show_more_info_again(chat_id)
+        elif target_post == "convert":
+            self._show_convert_coins(chat_id)
+        elif target_post == "wallet":
+            self._show_connect_wallet(chat_id)
+        elif target_post == "welcome":
+            self._send_welcome_again(chat_id)
+
+    def _go_back_to_wallet(self, chat_id: int) -> None:
+        """Специальный возврат из проблем кошелька."""
+        self._go_back(chat_id)
+
+    def _show_more_info_again(self, chat_id: int) -> None:
+        """Повторный показ информации."""
+        info_text = """
+В этом боте вы сможете зарабатывать монеты для получения скидки при поступление в наше учебное заведение.
+
+*Как это работает ?*
+
+Ваша задача это как можно больше набрать монет в нашем Web приложении, чем больше монет тем выше скидка на обучение.
+*Максимальное скидка на обучение составляет 15%*.
+
+Примерное количество монет на балансе в Web приложении для получение 15% должно составлять 
+~ *500 000 монет* и больше.
+
+Но так же можно  получить более меньшею скидку на обучение набрав при этом 
+~ *100 000 монет* и больше, что в итоге вы можете получить скидку в размере 10%
+
+Если вы набрали меньше чем 
+*100 000, но больше чем 50 000 монет*, то вы можете получить 5% скидку на обучение. В ином случае если ваш баланс составляет *50 000 монет - 30 000 монет*, то размер вашей скидки составит 3%
+В другом случае если баланс составляет менее *30 000 монет*, то баллы будут не начислены 😔
+        """
+
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton("Конвертация монет", callback_data='convert_coins'),
+            InlineKeyboardButton("Подключить крипто"
+                                 " кошелек", callback_data='connect_wallet')
+        )
+
+        try:
+            sent_msg = self.bot.send_photo(
+                chat_id=chat_id,
+                photo=open(os.path.join('image', 'KIPO100.jpg'), 'rb'),
+                caption=info_text,
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+            self._save_message(chat_id, "info", sent_msg.message_id)
+            self._save_state(chat_id, "last_post", "info")
+        except Exception as e:
+            print(f"Ошибка при повторной отправке информации: {e}")
+
+    def _send_welcome_again(self, chat_id: int) -> None:
+        """Повторная отправка приветствия."""
+        welcome_text = """
+*Добро Пожаловать в Бота от Лучшего Учебного Учреждения КИПО 🔥*
+
+Зарабатывайте виртуальные монеты для наибольшего шанса поступить в наше учебное заведение.
+        """
+
+        keyboard = InlineKeyboardMarkup()
+        keyboard.row(
+            InlineKeyboardButton(
+                "ОТКРЫТЬ ПРИЛОЖЕНИЕ",
+                web_app=WebAppInfo(url="https://sergei-dott.github.io/KIPOclicke/")
+            ),
+            InlineKeyboardButton("Узнать "
+                                 "больше", callback_data='learn_more')
+        )
+
+        try:
+            sent_msg = self.bot.send_photo(
+                chat_id=chat_id,
+                photo=open(os.path.join('image', 'KIPOGRA.jpg'), 'rb'),
+                caption=welcome_text,
+                reply_markup=keyboard,
+                parse_mode='Markdown'
+            )
+            self._save_message(chat_id, "welcome", sent_msg.message_id)
+            self._save_state(chat_id, "last_post", "welcome")
+        except Exception as e:
+            print(f"Ошибка при отправке welcome сообщения: {e}")
+
+    def _save_message(self, chat_id: int, tag: str, message_id: int) -> None:
+        """Сохраняет ID сообщения."""
+        if chat_id not in self.user_messages:
+            self.user_messages[chat_id] = {}
+        self.user_messages[chat_id][tag] = message_id
+
+    def _save_state(self, chat_id: int, key: str, value: str) -> None:
+        """Сохраняет состояние пользователя."""
+        if chat_id not in self.user_states:
+            self.user_states[chat_id] = {}
+        self.user_states[chat_id][key] = value
+
+    def run(self) -> None:
+        """Запускает бота."""
+        print("Бот КИПО запущен! Для остановки нажмите Ctrl+C")
+        self.bot.infinity_polling()
+
+
+if __name__ == '__main__':
+    TOKEN = ''
+    bot = KIPOBot(TOKEN)
+    bot.run()
